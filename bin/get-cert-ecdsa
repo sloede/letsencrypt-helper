@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# The following options must be set by the user
+
+# The main domain for which a certificate should be obtained. This domain will
+# also become the Common Name (CN) and will be used to identify the certificate
+# infrastructure used by the Let's encrypt client.
+DOMAIN=sloede.com
+
+# Optional list of additional domains that should be included in the
+# certificate. Separate multiple domains by comma (but without spaces).
+ADDITIONAL_DOMAINS=gitlab.sloede.com,owncloud.sloede.com,status.sloede.com,travelblog.sloede.com
+
+# Mail address to be used for the Let's encrypt account
+EMAIL=michael@sloede.com
+
+# Path to the Let's encrypt binary
+LETSENCRYPT_EXEC=/home/mic/certbot/certbot-auto
+
+# Webroot path for the Let's encrypt HTTP challenge
+WEBROOT_PATH=/var/www/letsencrypt
+
+# The following options have sensible defaults and may be left unchanged
+
+# System-wide config file for OpenSSL
+OPENSSL_CONFIG_FILE=/etc/ssl/openssl.cnf
+
+# Path to the Let's encrypt configuration directory
+LETSENCRYPT_CONFIG_DIR=/etc/letsencrypt
+
+# No more user-editable options beyond this point
+
+# Save helpful directories for quick reference (must already exist)
+config_dir=$LETSENCRYPT_CONFIG_DIR/ecdsa
+archive_dir=$config_dir/archive/$DOMAIN
+live_dir=$config_dir/live/$DOMAIN
+csr_dir=$config_dir/csr
+key_dir=$config_dir/keys
+
+# Timestamp for file identification
+ts=$(date "+%s")
+
+# Generate new private key
+openssl ecparam -genkey -name prime256v1 > $key_dir/${ts}_privkey.pem
+
+# Build SAN list
+san=""
+if [ -n "$ADDITIONAL_DOMAINS" ]; then
+  san="[SAN]\nsubjectAltName=DNS:$DOMAIN,DNS:${ADDITIONAL_DOMAINS//,/,DNS:}"
+fi
+
+# Generate certificate signing request (CSR)
+openssl req -new -sha256 -key $key_dir/${ts}_privkey.pem -subj "/CN=$DOMAIN" \
+  -reqexts SAN -config <(cat $OPENSSL_CONFIG_FILE \
+  <(printf "$san")) -outform der -out $csr_dir/${ts}_csr.der
+
+# Obtain certificate
+$LETSENCRYPT_EXEC certonly \
+  --text --agree-tos --renew-by-default --authenticator webroot \
+  --non-interactive --email $EMAIL --webroot-path $WEBROOT_PATH \
+  --csr $csr_dir/${ts}_csr.der --cert-path $archive_dir/${ts}_cert.pem \
+  --chain-path $archive_dir/${ts}_chain.pem \
+  --fullchain-path $archive_dir/${ts}_fullchain.pem
+
+# Delete empty directories that may remain after HTTP challenge is completed
+if [ -d "$WEBROOT_PATH/.well-known/acme-challenge" ]; then
+  rmdir --ignore-fail-on-non-empty $WEBROOT_PATH/.well-known/acme-challenge
+fi
+if [ -d "$WEBROOT_PATH/.well-known" ]; then
+  rmdir --ignore-fail-on-non-empty $WEBROOT_PATH/.well-known
+fi
+
+# Copy key to archive
+cp $key_dir/${ts}_privkey.pem $archive_dir
+
+# (Re-)create links in live dir
+rm -f $live_dir/privkey.pem $live_dir/cert.pem \
+  $live_dir/chain.pem $live_dir/fullchain.pem
+ln -s $archive_dir/${ts}_privkey.pem $live_dir/privkey.pem
+ln -s $archive_dir/${ts}_cert.pem $live_dir/cert.pem
+ln -s $archive_dir/${ts}_chain.pem $live_dir/chain.pem
+ln -s $archive_dir/${ts}_fullchain.pem $live_dir/fullchain.pem
+

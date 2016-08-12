@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# The following options must be set by the user
+
+# List of domains that should be included in the certificate. Separate multiple
+# domains by comma (but without spaces). The first domain will also become the
+# Common Name (CN).
+DOMAINS=sloede.com,gitlab.sloede.com,owncloud.sloede.com,status.sloede.com,travelblog.sloede.com
+
+# Mail address to be used for the Let's encrypt account
+EMAIL=michael@sloede.com
+
+# Path to the Let's encrypt binary
+LETSENCRYPT_EXEC=/home/mic/certbot/certbot-auto
+
+# Webroot path for the Let's encrypt HTTP challenge
+WEBROOT_PATH=/var/www/letsencrypt
+
+# The following options have sensible defaults and may be left unchanged
+
+# RSA key size (default is 2048, but 4096 is more secure)
+RSA_KEY_SIZE=2048
+
+# Obtain certificate
+$LETSENCRYPT_EXEC certonly \
+  --text --agree-tos --renew-by-default --authenticator webroot \
+  --rsa-key-size $RSA_KEY_SIZE --email $EMAIL --webroot-path $WEBROOT_PATH \
+  --non-interactive --domains $DOMAINS
+
+# Delete empty directories that may remain after HTTP challenge is completed
+if [ -d "$WEBROOT_PATH/.well-known/acme-challenge" ]; then
+  rmdir --ignore-fail-on-non-empty $WEBROOT_PATH/.well-known/acme-challenge
+fi
+if [ -d "$WEBROOT_PATH/.well-known" ]; then
+  rmdir --ignore-fail-on-non-empty $WEBROOT_PATH/.well-known
+fi
